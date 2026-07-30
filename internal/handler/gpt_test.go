@@ -51,7 +51,7 @@ func TestGPTHandler(t *testing.T) {
 			wantBody:   strings.Repeat("a", 450),
 		},
 		{
-			name:       "returns a safe fallback when OpenAI fails",
+			name:       "returns a safe fallback when the provider fails",
 			url:        "/gpt?query=hello&user=alice&secret=expected-secret",
 			client:     stubClient{err: errors.New("upstream failure")},
 			wantStatus: http.StatusBadGateway,

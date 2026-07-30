@@ -1,13 +1,14 @@
 # twitch-gpt-bot
 
-A small Go service that lets a Twitch bot fetch a concise OpenAI response through `GET /gpt`. It uses only the Go standard HTTP library plus `godotenv` for local configuration.
+A small Go service that lets a Twitch bot fetch a concise NVIDIA NIM response through `GET /gpt`. It uses only the Go standard HTTP library plus `godotenv` for local configuration.
 
 ## Quick path
 
-1. Copy `.env.example` to `.env` and fill in `OPENAI_API_KEY` and `API_SHARED_SECRET`.
-2. Start locally with `docker compose up --build`.
-3. Confirm `curl http://localhost:8080/health` returns `ok`.
-4. Configure a Twitch bot command to call `GET /gpt` over HTTPS.
+1. Copy `.env.example` to `.env`.
+2. In [NVIDIA Build](https://build.nvidia.com/), choose a model available to your API key and copy its model ID into `NVIDIA_MODEL`.
+3. Fill in `NVIDIA_API_KEY` and `API_SHARED_SECRET` locally or in Dokploy; never commit either value.
+4. Start locally with `docker compose up --build`.
+5. Confirm `curl http://localhost:8080/health` returns `ok`.
 
 ## Endpoints
 
@@ -25,7 +26,7 @@ The endpoint always returns `text/plain`:
 - `400`: malformed request.
 - `401`: invalid shared secret.
 - `429`: that user is still in the cooldown window.
-- `502`: OpenAI could not provide a response; a safe fallback is returned.
+- `502`: NVIDIA could not provide a response; a safe fallback is returned.
 
 Example:
 
@@ -38,17 +39,17 @@ curl --get 'http://localhost:8080/gpt' \
 
 ### `GET /health`
 
-Returns `200 ok` for Dokploy health checks. It does not call OpenAI.
+Returns `200 ok` for Dokploy health checks. It does not call NVIDIA.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `8080` | HTTP listen port. |
-| `OPENAI_API_KEY` | required | OpenAI API credential. Never commit it. |
-| `OPENAI_MODEL` | `gpt-4o-mini` | Chat Completions model. |
-| `OPENAI_MAX_TOKENS` | `120` | Upper bound for generated tokens per call. |
-| `OPENAI_TEMPERATURE` | `0.7` | Generation randomness, from `0` to `2`. |
+| `NVIDIA_API_KEY` | required | NVIDIA Build/NIM credential. Never commit it. |
+| `NVIDIA_MODEL` | required | Exact model ID enabled for the configured NVIDIA key. |
+| `NVIDIA_MAX_TOKENS` | `120` | Upper bound for generated tokens per call. |
+| `NVIDIA_TEMPERATURE` | `0.7` | Generation randomness, from `0` to `2`. |
 | `SYSTEM_PROMPT` | concise chat assistant | System instruction sent with every request. |
 | `RATE_LIMIT_SECONDS` | `8` | Per-user in-memory cooldown. |
 | `API_SHARED_SECRET` | required | Shared secret accepted by `/gpt`. |
@@ -61,7 +62,7 @@ openssl rand -hex 32
 
 ## Cost and abuse controls
 
-The initial implementation deliberately limits scope to a per-user cooldown and a low OpenAI output-token cap. There is no global daily quota, persistent storage, moderator bypass, or external dependency.
+The initial implementation deliberately limits scope to a per-user cooldown and a low NVIDIA output-token cap. There is no global daily quota, persistent storage, moderator bypass, or external dependency.
 
 This is suitable for one container. A restart resets cooldown state, and multiple replicas would not share limits. Keep the service at one replica until an explicit shared-limiter design is introduced.
 
@@ -90,6 +91,8 @@ docker run --rm --env-file .env -p 8080:8080 twitch-gpt-bot
 ## Dokploy deployment
 
 Build from this repository with the `Dockerfile`, add the variables from `.env.example` in Dokploy's secret/environment UI, and configure the health check path as `/health`. Do not upload a `.env` file containing production credentials.
+
+Use `NVIDIA_MODEL` exactly as NVIDIA Build presents it for your key. Available models and free-tier limits are account-dependent, so the application intentionally does not guess a default model.
 
 ## Future: Twitch EventSub WebSocket
 

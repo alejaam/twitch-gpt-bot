@@ -13,7 +13,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"twitch-gpt-bot/internal/handler"
-	"twitch-gpt-bot/internal/openai"
+	"twitch-gpt-bot/internal/nvidia"
 	"twitch-gpt-bot/internal/ratelimit"
 )
 
@@ -21,7 +21,7 @@ type config struct {
 	port             string
 	apiSharedSecret  string
 	rateLimit         time.Duration
-	openAIConfig     openai.Config
+	nvidiaConfig     nvidia.Config
 }
 
 func main() {
@@ -35,7 +35,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	client := openai.NewClient(cfg.openAIConfig)
+	client := nvidia.NewClient(cfg.nvidiaConfig)
 	gptHandler := handler.NewGPTHandler(cfg.apiSharedSecret, ratelimit.New(cfg.rateLimit), client)
 
 	mux := http.NewServeMux()
@@ -67,19 +67,23 @@ func loadConfig() (config, error) {
 		return config{}, fmt.Errorf("RATE_LIMIT_SECONDS must be a positive integer")
 	}
 
-	maxTokens, err := envInt("OPENAI_MAX_TOKENS", 120)
+	maxTokens, err := envInt("NVIDIA_MAX_TOKENS", 120)
 	if err != nil || maxTokens <= 0 {
-		return config{}, fmt.Errorf("OPENAI_MAX_TOKENS must be a positive integer")
+		return config{}, fmt.Errorf("NVIDIA_MAX_TOKENS must be a positive integer")
 	}
 
-	temperature, err := envFloat("OPENAI_TEMPERATURE", 0.7)
+	temperature, err := envFloat("NVIDIA_TEMPERATURE", 0.7)
 	if err != nil || temperature < 0 || temperature > 2 {
-		return config{}, fmt.Errorf("OPENAI_TEMPERATURE must be between 0 and 2")
+		return config{}, fmt.Errorf("NVIDIA_TEMPERATURE must be between 0 and 2")
 	}
 
-	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	apiKey := strings.TrimSpace(os.Getenv("NVIDIA_API_KEY"))
 	if apiKey == "" {
-		return config{}, fmt.Errorf("OPENAI_API_KEY is required")
+		return config{}, fmt.Errorf("NVIDIA_API_KEY is required")
+	}
+	model := strings.TrimSpace(os.Getenv("NVIDIA_MODEL"))
+	if model == "" {
+		return config{}, fmt.Errorf("NVIDIA_MODEL is required")
 	}
 	sharedSecret := strings.TrimSpace(os.Getenv("API_SHARED_SECRET"))
 	if sharedSecret == "" {
@@ -90,9 +94,9 @@ func loadConfig() (config, error) {
 		port:            envString("PORT", "8080"),
 		apiSharedSecret: sharedSecret,
 		rateLimit:        time.Duration(rateLimitSeconds) * time.Second,
-		openAIConfig: openai.Config{
+		nvidiaConfig: nvidia.Config{
 			APIKey:       apiKey,
-			Model:        envString("OPENAI_MODEL", "gpt-4o-mini"),
+			Model:        model,
 			MaxTokens:    maxTokens,
 			Temperature:  temperature,
 			SystemPrompt: envString("SYSTEM_PROMPT", "You are a helpful Twitch chat assistant. Keep every answer concise and safe for a public chat."),

@@ -1,4 +1,4 @@
-package openai
+package nvidia
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const chatCompletionsURL = "https://api.openai.com/v1/chat/completions"
+const chatCompletionsURL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 type Config struct {
 	APIKey       string
@@ -34,7 +34,7 @@ func NewClient(config Config) *Client {
 	return NewClientWithHTTPClient(config, &http.Client{Timeout: 15 * time.Second})
 }
 
-// NewClientWithHTTPClient permits isolated HTTP tests without calling OpenAI.
+// NewClientWithHTTPClient permits isolated HTTP tests without calling NVIDIA.
 func NewClientWithHTTPClient(config Config, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
@@ -68,8 +68,8 @@ type chatCompletionResponse struct {
 	} `json:"choices"`
 }
 
-// Generate makes one Chat Completions request. Errors deliberately omit request
-// and response bodies so user prompts and credentials never end up in logs.
+// Generate makes one NVIDIA NIM Chat Completions request. Errors deliberately
+// omit request and response bodies so prompts and credentials never reach logs.
 func (c *Client) Generate(ctx context.Context, query string) (string, error) {
 	payload, err := json.Marshal(chatCompletionRequest{
 		Model: c.model,
@@ -81,33 +81,33 @@ func (c *Client) Generate(ctx context.Context, query string) (string, error) {
 		Temperature: c.temperature,
 	})
 	if err != nil {
-		return "", fmt.Errorf("marshal OpenAI request: %w", err)
+		return "", fmt.Errorf("marshal NVIDIA request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsURL, bytes.NewReader(payload))
 	if err != nil {
-		return "", fmt.Errorf("create OpenAI request: %w", err)
+		return "", fmt.Errorf("create NVIDIA request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("call OpenAI: %w", err)
+		return "", fmt.Errorf("call NVIDIA: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
-		return "", fmt.Errorf("OpenAI returned status %d", resp.StatusCode)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+		return "", fmt.Errorf("NVIDIA returned status %d", resp.StatusCode)
 	}
 
 	var completion chatCompletionResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&completion); err != nil {
-		return "", fmt.Errorf("decode OpenAI response: %w", err)
+		return "", fmt.Errorf("decode NVIDIA response: %w", err)
 	}
 	if len(completion.Choices) == 0 || strings.TrimSpace(completion.Choices[0].Message.Content) == "" {
-		return "", fmt.Errorf("OpenAI returned an empty completion")
+		return "", fmt.Errorf("NVIDIA returned an empty completion")
 	}
 
 	return completion.Choices[0].Message.Content, nil
