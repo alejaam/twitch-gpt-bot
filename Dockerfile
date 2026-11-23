@@ -11,7 +11,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/twitch-
 # Runtime stage
 FROM alpine:3.20
 
-RUN addgroup -S app && adduser -S app -G app
+RUN apk --no-cache add ca-certificates tzdata && \
+    addgroup -S app && adduser -S app -G app
 USER app
 
 COPY --from=builder /out/twitch-gpt-bot /usr/local/bin/twitch-gpt-bot
