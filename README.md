@@ -1,99 +1,80 @@
 # twitch-gpt-bot
 
-A small Go service that lets a Twitch bot fetch a concise NVIDIA NIM response through `GET /gpt`. It uses only the Go standard HTTP library plus `godotenv` for local configuration.
+A Go service that connects directly to Twitch Chat (via TLS IRC) to answer viewer commands (e.g. `!gpt <prompt>`) using **Google Gemini** or **NVIDIA NIM**.
 
-## Quick path
+Designed for single-container deployment (Dokploy, Docker, or standalone binary) behind NAT without requiring a public IP, domain, or port-forwarding.
 
-1. Copy `.env.example` to `.env`.
-2. In [NVIDIA Build](https://build.nvidia.com/), choose a model available to your API key and copy its model ID into `NVIDIA_MODEL`.
-3. Fill in `NVIDIA_API_KEY` and `API_SHARED_SECRET` locally or in Dokploy; never commit either value.
-4. Start locally with `docker compose up --build`.
-5. Confirm `curl http://localhost:8080/health` returns `ok`.
+---
 
-## Endpoints
+## Highlights
 
-### `GET /gpt`
+- **Outbound TLS connection:** Connects directly to `irc.chat.twitch.tv:6697`. No incoming ports or webhooks needed.
+- **Provider Choice:** Supports **Google Gemini** (`gemini-2.5-flash`, `gemini-1.5-flash`, etc.) and **NVIDIA NIM** (`LLM_PROVIDER=gemini` or `LLM_PROVIDER=nvidia`).
+- **Twitch-optimized:** Automatically mentions the requesting viewer (`@user`), strips extra whitespace into a single line, and respects Twitch's 450 character limit.
+- **Abuse Controls:** In-memory per-user cooldown (`RATE_LIMIT_SECONDS`) to prevent chat spam.
+- **Dokploy friendly:** Includes an optional `/health` HTTP endpoint on `PORT` for container health monitoring.
 
-Required query parameters:
+---
 
-- `query`: the viewer's prompt.
-- `user`: the Twitch username used for the in-memory cooldown.
-- `secret`: must match `API_SHARED_SECRET`.
+## Quick Start
 
-The endpoint always returns `text/plain`:
+1. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+2. Generate a Twitch OAuth token for your bot account:
+   - Use a tool like [twitchtokengenerator.com](https://twitchtokengenerator.com/) or Twitch CLI.
+   - Required scopes: `chat:read` and `chat:edit`.
+3. Configure `.env`:
+   ```env
+   TWITCH_BOT_USERNAME=tu_bot_o_usuario
+   TWITCH_OAUTH_TOKEN=oauth:tu_token_aqui
+   TWITCH_CHANNEL=tu_canal
+   COMMAND_PREFIX=!gpt
 
-- `200`: generated response, normalized to one line and capped at 450 characters.
-- `400`: malformed request.
-- `401`: invalid shared secret.
-- `429`: that user is still in the cooldown window.
-- `502`: NVIDIA could not provide a response; a safe fallback is returned.
+   LLM_PROVIDER=gemini
+   GEMINI_API_KEY=tu_google_api_key
+   GEMINI_MODEL=gemini-2.5-flash
+   ```
+4. Run tests:
+   ```bash
+   go test ./...
+   ```
+5. Run the bot:
+   ```bash
+   go run ./cmd
+   ```
 
-Example:
+---
 
-```bash
-curl --get 'http://localhost:8080/gpt' \
-  --data-urlencode 'query=Explain dependency injection in one sentence' \
-  --data-urlencode 'user=viewer_name' \
-  --data-urlencode 'secret=replace-with-your-secret'
-```
-
-### `GET /health`
-
-Returns `200 ok` for Dokploy health checks. It does not call NVIDIA.
-
-## Configuration
+## Configuration Reference
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PORT` | `8080` | HTTP listen port. |
-| `NVIDIA_API_KEY` | required | NVIDIA Build/NIM credential. Never commit it. |
-| `NVIDIA_MODEL` | required | Exact model ID enabled for the configured NVIDIA key. |
-| `NVIDIA_MAX_TOKENS` | `120` | Upper bound for generated tokens per call. |
-| `NVIDIA_TEMPERATURE` | `0.7` | Generation randomness, from `0` to `2`. |
-| `SYSTEM_PROMPT` | concise chat assistant | System instruction sent with every request. |
-| `RATE_LIMIT_SECONDS` | `8` | Per-user in-memory cooldown. |
-| `API_SHARED_SECRET` | required | Shared secret accepted by `/gpt`. |
+| `TWITCH_BOT_USERNAME` | *required* | Twitch username of the bot account. |
+| `TWITCH_OAUTH_TOKEN` | *required* | OAuth token (`oauth:xxxx`) with `chat:read` + `chat:edit`. |
+| `TWITCH_CHANNEL` | *required* | Target Twitch channel name (with or without `#`). |
+| `COMMAND_PREFIX` | `!gpt` | Chat trigger prefix. |
+| `RATE_LIMIT_SECONDS` | `8` | Cooldown period per viewer in seconds. |
+| `LLM_PROVIDER` | `gemini` | LLM engine: `gemini` or `nvidia`. |
+| `GEMINI_API_KEY` | required if gemini | Google AI Studio / Gemini API key. |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name. |
+| `GEMINI_MAX_TOKENS` | `150` | Maximum tokens generated. |
+| `GEMINI_TEMPERATURE` | `0.7` | Temperature (0.0 - 2.0). |
+| `NVIDIA_API_KEY` | required if nvidia | NVIDIA Build NIM API key. |
+| `NVIDIA_MODEL` | required if nvidia | Exact NVIDIA model ID. |
+| `NVIDIA_MAX_TOKENS` | `120` | Maximum tokens generated. |
+| `NVIDIA_TEMPERATURE` | `0.7` | Temperature (0.0 - 2.0). |
+| `SYSTEM_PROMPT` | concise assistant | System instruction sent with prompts. |
+| `PORT` | `8080` | Internal HTTP port for Dokploy health checks. |
 
-Generate the shared secret outside source control:
+---
 
-```bash
-openssl rand -hex 32
-```
+## Deployment with Dokploy
 
-## Cost and abuse controls
+1. Create a new Application in Dokploy pointed to your repository.
+2. In the **Environment** tab, add your production environment variables (from `.env.example`).
+3. Set the Health Check path to `/health` on port `8080`.
+4. Deploy. The container connects outbound to Twitch chat and listens for `!gpt`.
 
-The initial implementation deliberately limits scope to a per-user cooldown and a low NVIDIA output-token cap. There is no global daily quota, persistent storage, moderator bypass, or external dependency.
-
-This is suitable for one container. A restart resets cooldown state, and multiple replicas would not share limits. Keep the service at one replica until an explicit shared-limiter design is introduced.
-
-Use HTTPS in front of the service. Since the first bot integration sends the shared secret in a URL, also configure any reverse proxy or access logs to redact query strings where possible.
-
-## Twitch bot example
-
-For a Nightbot-style command, configure the external URL in the platform UI using its URL encoding helpers. The concrete syntax differs by provider; the request must URL-encode the viewer question and include the viewer username plus the shared secret. Do not expose the raw secret in public chat messages.
-
-## Local development
-
-```bash
-cp .env.example .env
-# edit .env
-go test ./...
-go run ./cmd
-```
-
-Docker is the supported local path when Go is not installed on the host:
-
-```bash
-docker build -t twitch-gpt-bot .
-docker run --rm --env-file .env -p 8080:8080 twitch-gpt-bot
-```
-
-## Dokploy deployment
-
-Build from this repository with the `Dockerfile`, add the variables from `.env.example` in Dokploy's secret/environment UI, and configure the health check path as `/health`. Do not upload a `.env` file containing production credentials.
-
-Use `NVIDIA_MODEL` exactly as NVIDIA Build presents it for your key. Available models and free-tier limits are account-dependent, so the application intentionally does not guess a default model.
-
-## Future: Twitch EventSub WebSocket
-
-A direct EventSub integration would replace third-party `urlfetch` bots with a WebSocket consumer that verifies Twitch events, owns command parsing, and can obtain authoritative broadcaster/moderator roles. It is intentionally not implemented here because it introduces Twitch OAuth, subscription lifecycle management, reconnect handling, and a different operational model.
+*Tip:* In your Twitch channel, type `/mod <TWITCH_BOT_USERNAME>` so Twitch does not apply message rate limits to the bot.
